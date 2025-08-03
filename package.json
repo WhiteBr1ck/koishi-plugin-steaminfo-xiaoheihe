@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-steaminfo-xiaoheihe",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "description": "通过小黑盒网站搜索并生成截图获取 steam 游戏信息",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
