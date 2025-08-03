@@ -1,21 +1,34 @@
 {
   "name": "koishi-plugin-steaminfo-xiaoheihe",
-  "description": "steaminfo",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "通过小黑盒网站搜索并生成截图获取 steam 游戏信息",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib",
     "dist"
   ],
+  "author": "WhiteBr1ck",
   "license": "MIT",
-  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WhiteBr1ck/koishi-plugin-steaminfo-xiaoheihe.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WhiteBr1ck/koishi-plugin-steaminfo-xiaoheihe/issues"
+  },
+  "homepage": "https://github.com/WhiteBr1ck/koishi-plugin-steaminfo-xiaoheihe#readme",
   "keywords": [
-    "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "xiaoheihe",
+    "heybox",
+    "game",
+    "screenshot",
+    "小黑盒",
+    "游戏",
+    "截图"
   ],
-  "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.18.7"
   }
