@@ -102,22 +102,60 @@ export function apply(ctx: Context, config: Config) {
         log(`准备导航到搜索页面: ${searchUrl}`)
         await page.goto(searchUrl, { waitUntil: 'load', timeout: config.waitTimeout })
         
-        const gameLinkSelector = 'a[href*="/app/topic/game/"]'
-        let gamePageHref;
+        let finalUrl: string;
+        let navigationCompleted = false; // 标志位，用于判断是否需要手动goto
+
+        // Plan A: 优先寻找列表页的游戏链接
+        const listGameSelector = 'a[href*="/app/topic/game/"]'
+        log(`[Plan A] 尝试寻找列表页的游戏链接: "${listGameSelector}"`)
         try {
-          log(`将使用选择器 "${gameLinkSelector}" 寻找游戏链接...`)
-          await page.waitForSelector(gameLinkSelector, { timeout: 10000 })
-          gamePageHref = await page.$eval(gameLinkSelector, el => el.getAttribute('href'))
+          await page.waitForSelector(listGameSelector, { timeout: 5000 }) 
+          const gamePageHref = await page.$eval(listGameSelector, el => el.getAttribute('href'))
+          finalUrl = `https://www.xiaoheihe.cn${gamePageHref}`
+          log(`[Plan A] 成功！获取到链接: ${finalUrl}`)
         } catch (e) {
-          if (config.debug) logger.warn('在搜索页未能找到游戏链接，可能是Cookie失效、游戏不存在或页面结构更新。')
-          const screenshot = await page.screenshot({ fullPage: true })
-          await session.send(['未能找到游戏专题链接。这是当前页面的截图：', segment.image(screenshot)])
-          return
+          log(`[Plan A] 失败。切换到 Plan B...`)
+          try {
+            // Plan B: 尝试社区中转策略
+            const communityLinkSelector = '.search-topic__topic-name'
+            log(`[Plan B] 尝试寻找社区链接: "${communityLinkSelector}"`)
+            await page.waitForSelector(communityLinkSelector, { timeout: 5000 })
+            await Promise.all([
+              page.waitForNavigation({ waitUntil: 'load', timeout: config.waitTimeout }),
+              page.click(communityLinkSelector)
+            ])
+            const gameTabSelector = '.slide-tab__tab-label'
+            await page.waitForSelector(gameTabSelector, { timeout: 10000 })
+            await Promise.all([
+              page.waitForNavigation({ waitUntil: 'load', timeout: config.waitTimeout }),
+              page.click(gameTabSelector)
+            ])
+            navigationCompleted = true
+            log(`[Plan B] 成功到达最终游戏页面: ${page.url()}`)
+          } catch (e2) {
+            log(`[Plan B] 失败。切换到 Plan C...`)
+            try {
+              // Plan C: 尝试点击独立游戏卡片
+              const singleGameCardSelector = '.search-result__game .game-rank__game-card'
+              log(`[Plan C] 尝试寻找并点击独立游戏卡片: "${singleGameCardSelector}"`)
+              await page.waitForSelector(singleGameCardSelector, { timeout: 5000 })
+              await page.click(singleGameCardSelector)
+              navigationCompleted = true
+              log(`[Plan C] 点击成功！页面将原地跳转。`)
+            } catch (e3) {
+              if (config.debug) logger.warn('在搜索页未能找到游戏链接，所有方案均失败。')
+              const screenshot = await page.screenshot({ fullPage: true })
+              await session.send(['未能找到游戏专题链接。这是当前页面的截图：', segment.image(screenshot)])
+              return
+            }
+          }
         }
         
-        const finalUrl = `https://www.xiaoheihe.cn${gamePageHref}`
-        log(`已获取详情页链接，正在导航到: ${finalUrl}`)
-        await page.goto(finalUrl, { waitUntil: 'load', timeout: config.waitTimeout })
+
+        if (!navigationCompleted) {
+          log(`正在导航到: ${finalUrl}`)
+          await page.goto(finalUrl, { waitUntil: 'load', timeout: config.waitTimeout })
+        }
         
         const mainContentSelector = '.game-detail-page-detail'
         log(`等待核心内容 "${mainContentSelector}" 出现...`)
