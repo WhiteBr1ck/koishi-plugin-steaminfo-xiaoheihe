@@ -114,6 +114,7 @@ export function apply(ctx: Context, config: Config) {
       // 尝试截取主要内容，找不到则全页截图
       const candidates = [
         '.hb-bbs-post',                    // 帖子/文章页面
+        '.hb-bbs-image-text',              // 图文页面
         '.game-detail-page-detail',       // 游戏详情页面
         '.post-detail',                   // 其他类型帖子
         '.topic-detail',                  // 话题详情
