@@ -14,6 +14,7 @@ export interface Config {
   showGameTitle: boolean;
   showOnlineCount: boolean;
   debug: boolean;
+  enableLinkPreview: boolean;
 }
 
 export const Config: Schema<Config> = Schema.intersect([
@@ -47,6 +48,12 @@ export const Config: Schema<Config> = Schema.intersect([
   }).description('显示设置'),
 
   Schema.object({
+    enableLinkPreview: Schema.boolean()
+      .description('自动解析消息中的小黑盒链接并截图回复。')
+      .default(true),
+  }).description('链接解析'),
+
+  Schema.object({
     debug: Schema.boolean()
       .description('启用后，将在控制台输出详细的调试日志。')
       .default(false),
@@ -60,6 +67,111 @@ export function apply(ctx: Context, config: Config) {
       logger.info(message)
     }
   }
+
+  // 小黑盒链接解析中间件
+  ctx.middleware(async (session, next) => {
+    if (!config.enableLinkPreview) return next()
+    // 避免处理机器人自身消息
+    if (session.userId === session.selfId) return next()
+    
+    const content = session.content || ''
+    const match = content.match(/https?:\/\/(?:[a-z0-9.-]*\.)?xiaoheihe\.cn[^\s]*/i)
+    if (!match) return next()
+
+    const targetUrl = match[0]
+    let page
+    let tempMessageId: string
+
+    try {
+      const tempMessage = [
+        segment.quote(session.messageId),
+        '检测到小黑盒链接，正在为您生成截图，请稍候...'
+      ]
+      const sentMessageIds = await session.send(tempMessage)
+      tempMessageId = sentMessageIds[0]
+      log(`检测到小黑盒链接，开始截图: ${targetUrl}，临时消息ID: ${tempMessageId}`)
+      
+      page = await ctx.puppeteer.page()
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+      
+      if (config.cookies) {
+        const cookies = config.cookies.split(';').map(pair => {
+          const parts = pair.trim().split('=')
+          const name = parts.shift()
+          const value = parts.join('=')
+          return { name, value, domain: '.xiaoheihe.cn' }
+        })
+        await page.setCookie(...cookies)
+        log(`链接解析：注入 ${cookies.length} 个 Cookie`)
+      }
+      
+      await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: config.deviceScaleFactor })
+      await page.goto(targetUrl, { waitUntil: 'load', timeout: config.waitTimeout })
+      
+      // 等待渲染
+      await new Promise(resolve => setTimeout(resolve, config.renderDelay))
+      
+      // 尝试截取主要内容，找不到则全页截图
+      const candidates = [
+        '.hb-bbs-post',                    // 帖子/文章页面
+        '.game-detail-page-detail',       // 游戏详情页面
+        '.post-detail',                   // 其他类型帖子
+        '.topic-detail',                  // 话题详情
+        'main',                           // 通用主内容区域
+        '#app'                            // 应用根容器
+      ]
+      
+      let element = null
+      let foundSelector = ''
+      for (const selector of candidates) {
+        element = await page.$(selector)
+        if (element) {
+          foundSelector = selector
+          log(`找到主要内容区域 (${selector})，进行精准截图`)
+          break
+        }
+      }
+      
+      let imageBuffer
+      if (element) {
+        imageBuffer = await element.screenshot({ 
+          type: config.imageType, 
+          quality: config.imageType === 'jpeg' ? config.imageQuality : undefined 
+        })
+      } else {
+        log('未找到任何主要内容区域，进行全页截图')
+        imageBuffer = await page.screenshot({ 
+          fullPage: true,
+          type: config.imageType, 
+          quality: config.imageType === 'jpeg' ? config.imageQuality : undefined 
+        }) as Buffer
+      }
+      
+      await session.send([segment.image(imageBuffer)])
+      log('链接解析截图完成')
+      
+      // 拦截消息，不再传递给后续中间件
+      return
+      
+    } catch (error) {
+      logger.error('链接解析截图失败:', error)
+      await session.send('链接截图失败，请稍后再试。')
+      return
+    } finally {
+      if (page) {
+        await page.close()
+        log('链接解析：浏览器页面已关闭')
+      }
+      if (tempMessageId) {
+        try {
+          await session.bot.deleteMessage(session.channelId, tempMessageId)
+          log(`链接解析：临时消息 ${tempMessageId} 已撤回`)
+        } catch (e) {
+          logger.warn(`链接解析：撤回临时消息失败: ${e.message}`)
+        }
+      }
+    }
+  })
 
   ctx.command('xiaoheihe <game:text>', '小黑盒游戏页面截图')
     .alias('小黑盒')
